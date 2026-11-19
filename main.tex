@@ -34,7 +34,7 @@ error-bounded lossy compression, scientific data, radar coverage, context mixing
 
 Planning radar coverage in cities requires the power density a radar delivers to every point of a three-dimensional region, including the shadows of buildings~\cite{kostic2003radar,chen2008representation}. Such fields are computed by testing lines of sight against city models and are stored on regular grids~\cite{jiao2026vrpf}. At 1~m spacing a 1024~m cube holds $1.07\times10^9$ nodes, or 4.29~GB per radar configuration in single precision, and comparing sites or radar parameters multiplies this volume. Downstream simulations read the field through random point queries. A compressed representation must therefore bound the error at every node, decode without the generating program, and answer a query without decompressing the field.
 
-Fig.~\ref{fig:method}(a) shows why such fields resist general-purpose compression. Neighboring nodes often straddle an occlusion boundary, where the value falls from a smooth level to exactly zero. Outside the elevation range swept by the beam, the nonzero values follow the side lobes of the antenna pattern and change by orders of magnitude between vertically adjacent nodes. Error-bounded lossy compressors such as SZ3~\cite{liang2023sz3}, ZFP~\cite{lindstrom2014zfp} and SPERR~\cite{li2023sperr} exploit local smoothness through prediction or transforms, which both features break. Their native error bounds are absolute or relative to the value range, so a pointwise relative bound requires a logarithmic transform~\cite{liang2018pwr,zou2019msst} and a separate treatment of zeros, and answering a point query generally means decompressing a block or the whole array. Sparse volume structures such as VDB~\cite{museth2013vdb} and NanoVDB~\cite{museth2021nanovdb} give fast random access but gain little here, because much of the urban space is visible and the field is not sparse.
+The input panel of Fig.~\ref{fig:overview} shows why such fields resist general-purpose compression. Neighboring nodes often straddle an occlusion boundary, where the value falls from a smooth level to exactly zero. Outside the elevation range swept by the beam, the nonzero values follow the side lobes of the antenna pattern and change by orders of magnitude between vertically adjacent nodes. Error-bounded lossy compressors such as SZ3~\cite{liang2023sz3}, ZFP~\cite{lindstrom2014zfp} and SPERR~\cite{li2023sperr} exploit local smoothness through prediction or transforms, which both features break. Their native error bounds are absolute or relative to the value range, so a pointwise relative bound requires a logarithmic transform~\cite{liang2018pwr,zou2019msst} and a separate treatment of zeros, and answering a point query generally means decompressing a block or the whole array. Sparse volume structures such as VDB~\cite{museth2013vdb} and NanoVDB~\cite{museth2021nanovdb} give fast random access but gain little here, because much of the urban space is visible and the field is not sparse.
 
 Both difficulties come from the physics that generates the data: apart from occlusion, a value is a smooth point-source decay times an antenna pattern factor that depends only on elevation, both described by a few parameters. If the decoder can evaluate these factors, a field is described mainly by where its zeros lie, plus small local deviations. Building on this observation, we contribute:
 \begin{itemize}
@@ -46,12 +46,12 @@ Both difficulties come from the physics that generates the data: apart from occl
 
 \begin{figure*}[t]
 \centering
-\includegraphics[width=\textwidth]{figs/fig_method.pdf}
-\caption{PSHC on the east--west vertical section through the radar at site P03 ($30^\circ$--$60^\circ$ window, $\varepsilon=0.1\%$). (a)~Original field in dBm/m$^2$; grey nodes are occluded ($S=0$), dashed lines mark the window edges and the star marks the radar. (b)~Octree leaves of the 40.7~kB compressed file on the same section: open sky becomes large model-only leaves, buildings become zero leaves, and small leaves gather along occlusion boundaries and near pattern nulls. (c)~Point query on the loaded structure; $m$ is the node's mask bit and $\hat S$ the model value.}
-\label{fig:method}
+\includegraphics[width=\textwidth]{figs/fig_overview.pdf}
+\caption{Overview of PSHC. The encoder (top) identifies the model parameters $\theta$ from the field, chooses the state of every octree leaf under a pointwise check, and entropy-codes the zero masks and the corrections. The decoder (bottom) evaluates~\eqref{eq:repr} at every node or loads the file once into a cell-indexed structure that answers point queries. Thumbnails (site P03, $30^\circ$--$60^\circ$ window, $\varepsilon=0.1\%$): the input field in dBm/m$^2$ on the vertical section through the radar, with occluded nodes grey, dashed window edges and a star at the radar; in step 1, the log deviation $\rho$ of the samples from the envelope against elevation (Section~\ref{sec:ident}); in step 2, the octree leaves of the 40.7~kB file on the same section, where dark outlines mark leaves with a coded zero mask.}
+\label{fig:overview}
 \end{figure*}
 
-\section{Problem and Representation}\label{sec:repr}
+\section{Problem and Overview}\label{sec:repr}
 
 \subsection{Input and Error Contract}
 
@@ -74,40 +74,27 @@ where $V\in\{0,1\}$ is the visibility, $R$ the distance and $\phi$ the elevation
 F(s)=\frac{\sin(As)}{N\sin(\beta s)},\qquad \beta=\frac{\pi d}{\lambda},\quad A=N\beta,
 \label{eq:af}
 \end{equation}
-is the array factor of $N$ elements spaced $d$ apart at wavelength $\lambda$. Equations~\eqref{eq:field} and~\eqref{eq:af} define how the data were generated; the encoder does not know their parameters.
+is the array factor of $N$ elements spaced $d$ apart at wavelength $\lambda$. Equations~\eqref{eq:field} and~\eqref{eq:af} describe how the data were generated; the encoder does not know their parameters.
 
-\subsection{Physics-Separable Representation}
+\subsection{Overview of PSHC}
 
 Following~\eqref{eq:field}, PSHC writes the decoded value as
 \begin{equation}
 \tilde S=M\cdot\fl\big(\hat S\,\Phi\big),
 \label{eq:repr}
 \end{equation}
-where $\fl$ denotes rounding to single precision. The zero mask $M$ equals 1 exactly where $S\neq0$; it coincides with $V$ except at visible nodes where $G$ vanishes, such as pattern nulls. The model value $\hat S$ is computed from parameters stored in the file, and $\Phi$ is a local multiplicative correction: $\Phi=1$ where the model is accurate enough, otherwise a factor shared by a block or one factor per node. The encoder builds~\eqref{eq:repr} in three steps: it identifies $\hat S$ from the data (Section~\ref{sec:ident}), chooses the representation of each octree block while verifying~\eqref{eq:contract} node by node (Section~\ref{sec:tree}), and entropy-codes the mask and the corrections into one file (Section~\ref{sec:query}). Fig.~\ref{fig:method}(b) shows the resulting blocks of a real file.
+where $\fl$ denotes rounding to single precision. The zero mask $M$ equals 1 exactly where $S\neq0$; it coincides with $V$ except at visible nodes where $G$ vanishes, such as pattern nulls. The model value $\hat S$ is computed from parameters $\theta$ stored in the file, and the multiplicative correction $\Phi$ equals 1 wherever the model is accurate enough. Fig.~\ref{fig:overview} shows how PSHC builds and uses~\eqref{eq:repr}. The encoder (1)~identifies $\theta$ from the data (Section~\ref{sec:ident}); (2)~partitions the grid with an octree and gives each leaf the cheapest state that passes a check of~\eqref{eq:contract} at every node (Section~\ref{sec:tree}); and (3)~entropy-codes the zero masks and the per-node corrections (Section~\ref{sec:query}). The decoder evaluates~\eqref{eq:repr} at every node, or (4)~loads the file once into a cell-indexed structure that (5)~answers point queries.
 
-\section{Identifying the Model from the Data}\label{sec:ident}
+\section{Self-Contained Model}\label{sec:ident}
 
-\begin{figure}[t]
-\centering
-\includegraphics[width=\columnwidth]{figs/fig_ident.pdf}
-\caption{Model identification on the field of Fig.~\ref{fig:method}. (a)~Log deviation of the $3.0\times10^6$ samples from the envelope; blue: $|\rho|\le0.01$. (b)~Running score in elevation order; its maximum interval is the initial window. (c)~Main-lobe roll-off below the lower edge (orange) and the pattern it implies. (d)~Samples next to the upper edge and the final pattern.}
-\label{fig:ident}
-\end{figure}
-
-\emph{Envelope.} For an isotropic point source, $1/S=R^2/K$ is a quadratic polynomial of the node coordinates. PSHC therefore models the envelope as
+For an isotropic point source, $1/S=R^2/K$ is quadratic in the node coordinates, so PSHC models the envelope as
 \begin{equation}
 1/\hat S_0=a_1X^2+a_2Y^2+a_3Z^2+a_4X+a_5Y+a_6Z+a_7,
 \label{eq:env}
 \end{equation}
-with coordinates $(X,Y,Z)$ centered on the grid. Because~\eqref{eq:env} is linear in $\boldsymbol a=(a_1,\dots,a_7)$, minimizing $\sum_n(S_n\boldsymbol\psi_n^{\mathsf T}\boldsymbol a-1)^2$ over random nonzero samples $n$, with $\boldsymbol\psi=(X^2,Y^2,Z^2,X,Y,Z,1)$, fits the relative deviation by linear least squares. Samples deviating by more than a threshold are rejected and the fit is repeated while the threshold is halved, which removes the side-lobe samples. The coefficients encode the source position, e.g., $Z_0=-a_6/(2a_3)$.
+with grid-centered coordinates $(X,Y,Z)$. The coefficients are fitted to random nonzero samples by linear least squares on the relative deviation, rejecting outliers iteratively, and they also encode the source position. Because $G\le1$, samples inside the window lie on the envelope and side-lobe samples below it, so $\rho=\ln(S/\hat S_0)\approx\ln G$ is near zero exactly over the window (Fig.~\ref{fig:overview}, step 1). The elevation interval dominated by samples with $|\rho|\le0.01$ gives the window, the main-lobe roll-off just outside each edge gives $A$ and the edge, and farther side lobes give $\beta$; these parameters are then refined to minimize the mean of $\min(|\ln(S/\hat S)|,1)$ over the samples. Since the side-lobe phase $As$ amplifies elevation errors by about $A$, the envelope and the elevations outside the window come from a refined 12-coefficient geometry $Q$, so that $\hat S=\hat S_0$ inside the window and $\hat S=F^2(s)/Q$ outside. The pattern is kept only if it reduces the deviation; otherwise a simpler model is used. The parameters $\theta$ take a few hundred bytes, and identification affects only the file size, never the error bound.
 
-\emph{Window.} Because $G\le1$, samples inside the window lie on the envelope and side-lobe samples fall below it: $\rho=\ln(S/\hat S_0)\approx\ln G$ (Fig.~\ref{fig:ident}(a)). Sorted by elevation, each sample scores $+1$ if $|\rho|\le0.01$ and $-16$ otherwise, and the interval with the largest total, found in one pass, is the initial window (Fig.~\ref{fig:ident}(b)). The heavy penalty keeps the interval out of the side lobes; a side with no deviating samples beyond it, such as $90^\circ$, gets no edge.
-
-\emph{Pattern.} Next to an edge $F(s)\approx\sin(As)/(As)$, so inverting the sinc for roll-off samples ($-1<\rho<-0.01$) makes $As$ linear in elevation; the slope gives $A$ and the zero crossing the edge (Fig.~\ref{fig:ident}(c)). If buildings hide the roll-off, the edge is searched between the interval end and the nearest deviating sample. Farther side lobes give $\beta$. Edges, $A$ and $\beta$ are then refined to minimize the truncated mean deviation $L=\frac1n\sum_n\min(|\ln(S_n/\hat S_n)|,1)$. Because the side-lobe phase $As$ amplifies elevation errors by about $A$, the envelope and the elevations outside the window come from a 12-coefficient geometry $Q$, which adds $XY$, $X^2Y$, $XY^2$, $X^3$ and $Y^3$ to~\eqref{eq:env} and is fitted to in-window samples. The model is $\hat S=\hat S_0$ inside the window and $\hat S=F^2(s)/Q$ outside (Fig.~\ref{fig:ident}(d)). When a smooth amplitude deviation shifts the side lobes, the geometry, edges, $A$ and $\beta$ are recalibrated from the side-lobe positions, which do not depend on amplitude.
-
-\emph{Acceptance.} The pattern is kept only if it at least halves the median $|\rho|$ of samples outside the window and lowers $L$; otherwise a simpler model is used. All parameters, a few hundred bytes, are stored in the file, so the decoder evaluates $\hat S$ at any node without the radar parameters. Identification affects only the file size; the error bound is enforced in Section~\ref{sec:tree}.
-
-\section{Corrections, Acceptance and Octree}\label{sec:tree}
+\section{Hierarchical Representation with Pointwise Acceptance}\label{sec:tree}
 
 \subsection{Log-Domain Corrections}
 
@@ -116,16 +103,30 @@ For $S>0$, condition~\eqref{eq:contract} is equivalent to $\ln(1-\varepsilon)\le
 |\ln\tilde S-\ln S|\le d,\qquad d=\ln(1+\varepsilon),
 \label{eq:logtol}
 \end{equation}
-is sufficient for~\eqref{eq:contract}. A per-node correction stores the integer $q=\mathrm{round}(\ln(S/\hat S)/\Delta)$ and decodes
-\begin{equation}
-\tilde S=\fl\big(\hat S\,e^{q\Delta}\big).
-\label{eq:quant}
-\end{equation}
-Rounding $q$ contributes at most $\Delta/2$ to the log error and the floating-point evaluation a small $\eta$, so~\eqref{eq:logtol} holds whenever $\Delta/2+|\eta|_{\max}\le d$; PSHC sets $\Delta$ slightly below $2d$. One step size thus serves values spanning many orders of magnitude, whereas additive corrections would need a step proportional to each value. When the deviations $\ln(S/\hat S)$ of a block fall in a narrow range, one shared integer $c$ with step $d/64$, set at the middle of the range, replaces the per-node ones.
+is sufficient for~\eqref{eq:contract}. A per-node correction stores the integer $q=\mathrm{round}(\ln(S/\hat S)/\Delta)$ and decodes $\tilde S=\fl(\hat S\,e^{q\Delta})$. Rounding $q$ contributes at most $\Delta/2$ to the log error and the floating-point evaluation a small $\eta$, so~\eqref{eq:logtol} holds whenever $\Delta/2+|\eta|_{\max}\le d$; PSHC sets $\Delta$ slightly below $2d$. One step size thus serves values spanning many orders of magnitude, whereas additive corrections would need a step proportional to each value. A leaf whose deviations $\ln(S/\hat S)$ fall in a narrow range stores one shared integer instead.
 
 \subsection{Leaf States and Acceptance}
 
-Each octree leaf takes one of five states: Z (all zero), P (model only, $\Phi=1$), C (one shared factor), R (per-node factors), or RAW (raw values). P, C and R leaves that contain zeros are called mixed and also carry a coded zero mask. For a candidate state, the encoder reconstructs every node exactly as the decoder will, with the same single-precision operations, deterministic elementary functions and no fused multiply--add, and tests the original condition~\eqref{eq:contract} at every node. States are tried in order of increasing cost and the first that passes is kept; an R candidate may move $q$ by $\pm1$, and RAW always passes. Every decoded node therefore satisfies~\eqref{eq:contract} by construction, whatever the accuracy of the model; \eqref{eq:logtol} serves only to choose $\Delta$.
+\begin{table}[t]
+\caption{Leaf states: data stored per leaf and decoded value of a nonzero node. P, C and R leaves that contain zeros (mixed leaves) also store a zero mask.}
+\label{tab:states}
+\centering
+\footnotesize
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{lll}
+\hline
+State & Stored data & Decoded nonzero value\\
+\hline
+Z & --- & (all nodes are zero)\\
+P & --- & $\fl(\hat S)$\\
+C & one integer $c$ & $\fl(\hat S\,e^{c\delta})$, $\delta=d/64$\\
+R & integers $q$, predictively coded & $\fl(\hat S\,e^{q\Delta})$\\
+RAW & single-precision values & $S$\\
+\hline
+\end{tabular}
+\end{table}
+
+Table~\ref{tab:states} lists the five leaf states. For a candidate state the encoder reconstructs every node exactly as the decoder will, with the same single-precision operations, deterministic elementary functions and no fused multiply--add, and tests~\eqref{eq:contract} at every node; the cheapest passing state is kept. Since RAW always passes, every decoded node satisfies~\eqref{eq:contract} by construction, whatever the accuracy of the model; \eqref{eq:logtol} only guides the choice of $\Delta$.
 
 \subsection{Octree Selection}
 
@@ -134,17 +135,17 @@ Leaves range from $512^3$ down to $8^3$ nodes. For a block $v$, the encoder comp
 C(v)=\min\Big(C_{\mathrm{leaf}}(v),\ b+\sum_{u\in\mathrm{child}(v)}C(u)\Big),
 \label{eq:cost}
 \end{equation}
-where $C_{\mathrm{leaf}}(v)$ is the cost of the cheapest feasible state, $b$ that of a split flag, and $C(v)=C_{\mathrm{leaf}}(v)$ for $8^3$ blocks. Costs count directory symbols, mask bits estimated by a dry run of the mask coder, and correction bits. Statistics of $8^3$ cells (nonzero count, P feasibility, range of $\ln(S/\hat S)$) are merged bottom-up by sums, conjunctions and min/max, so~\eqref{eq:cost} needs no rescan of the data. Mixed, R and RAW leaves are at most $32^3$, so each lies inside one $128^3$ superblock. Estimation errors affect only the size, because acceptance decides the final states. The tree and the leaf states form the leaf directory of the file.
+where $C_{\mathrm{leaf}}(v)$ is the cost of the cheapest feasible state, $b$ that of a split flag, and $C(v)=C_{\mathrm{leaf}}(v)$ for $8^3$ blocks. Costs count directory symbols, mask bits estimated by a dry run of the mask coder, and correction bits, and are evaluated bottom-up from statistics of $8^3$ cells without rescanning the data. Mixed, R and RAW leaves are at most $32^3$, so each lies inside one $128^3$ superblock. Estimation errors affect only the size, because acceptance decides the final states. The tree and the leaf states form the leaf directory of the file. As step 2 of Fig.~\ref{fig:overview} shows, open sky becomes large P leaves, buildings become Z leaves, and small leaves gather along occlusion boundaries and near pattern nulls.
 
 \section{Entropy Coding and Point Queries}\label{sec:query}
 
-\subsection{Coding of the Mask and the Corrections}
+\subsection{Entropy Coding}
 
-Only mixed leaves need their mask coded; for the other leaves the directory or the raw values determine the zeros. The mask is coded per $128^3$ superblock, in raster order across leaf boundaries, so superblocks decode independently and in parallel. Five context models predict each bit from the known states of causal neighbors: 16 neighbors in the current and two lower layers; 10 neighbors with the number of unknown face neighbors; 5 neighbors with the binned log distance to the source; the $3\times3$ nodes below with two face neighbors; and a hash of a larger two-layer neighborhood. Each context keeps an adaptive counter $p_i$. The log-odds $x_i=\ln(p_i/(1-p_i))$ are mixed as $p_{\mathrm{mix}}=\sigma(\sum_iw_ix_i)$ with online weight updates~\cite{mahoney2005mixing}, and two adaptive probability maps give $p_{\mathrm{apm}}$; the bit is arithmetic-coded with $(p_{\mathrm{mix}}+3p_{\mathrm{apm}})/4$. All of this uses integer arithmetic, so the encoder and the decoder stay bit-identical. In R leaves, $q$ is predicted from coded neighbors with the best of six predictors per leaf, and the residuals are entropy coded.
+Only mixed leaves need their zero mask coded; elsewhere the leaf states or the raw values determine the zeros. The mask is coded per $128^3$ superblock in raster order across leaf boundaries, so superblocks decode independently and in parallel. Five context models predict each bit from the known states of causal neighbors in the current and lower layers, from the number of unknown neighbors, and from the distance to the source; their predictions are combined by logistic mixing~\cite{mahoney2005mixing}, refined by adaptive probability maps, and arithmetic-coded. All probabilities are computed in integer arithmetic, so encoder and decoder stay bit-identical. In R leaves, $q$ is predicted from coded neighbors with the best of six predictors per leaf and the residuals are entropy-coded; the leaf directory is coded with adaptive binary models.
 
 \subsection{Query Structure}
 
-On loading, the file is expanded into a flat structure over cells of $8^3$ nodes. Each cell lies in exactly one leaf and stores a 2-bit class and a directory entry; masks, shared factors, corrections and pre-decoded values reside in separate pools. A query for node $(i,j,k)$ reads the class of its cell (Fig.~\ref{fig:method}(c)): class 0 returns zero, class 1 returns $\fl(\hat S)$, class 2 returns $m\,\fl(\hat S)$ with the node's mask bit $m$, and class 3 follows the entry to the leaf's shared factor, per-node correction or stored value. The class array takes 2 bits per cell, 64~KiB for a $512^3$ grid, and stays in cache, whereas random reads of a raw 512~MiB array mostly miss it. Cells whose model values involve the pattern are pre-decoded if this needs at most 64~MiB; otherwise the pattern is evaluated at query time, and such cells with a shared factor or only a few non-model values also use classes 1 and 2. Either way, a query returns exactly the value of full decoding.
+On loading, the file is expanded into a flat structure over cells of $8^3$ nodes (steps 4--5 of Fig.~\ref{fig:overview}). Each cell lies in one leaf and stores a 2-bit class and a directory entry; masks, shared factors, corrections and pre-decoded values reside in pools. A query reads the class of its cell: class 0 returns zero, class 1 returns $\fl(\hat S)$, class 2 returns $m\,\fl(\hat S)$ with the node's mask bit $m$, and class 3 follows the entry to the leaf data. The class array takes 2 bits per cell (64~KiB for $512^3$ nodes) and stays in cache, whereas random reads of a raw 512~MiB array mostly miss it. Cells whose model values involve the pattern are pre-decoded if this needs at most 64~MiB; otherwise the pattern is evaluated at query time, and such cells with a shared factor or few non-model values also use classes 1 and 2. Either way a query returns exactly the value of full decoding.
 
 \section{Experiments}\label{sec:exp}
 
@@ -175,11 +176,16 @@ The baselines are SZ3 3.4.0~\cite{liang2023sz3}, ZFP 1.0.1~\cite{lindstrom2014zf
 
 \subsection{Compression Ratio}
 
-
-
 Table~\ref{tab:cr} lists all methods. SZ3 is the best valid baseline in all 60 configurations, followed by SPERR, while ZFP and the SZ2 modes stay at or below 34.5. SZ2-L restores zeros through a sentinel and decoded zeros as nonzero values at up to nine sites; SZ2-P exceeded the bound at two sites with $30^\circ$--$60^\circ$ at $\varepsilon=0.01\%$. With the $0^\circ$--$90^\circ$ window almost all nonzero nodes lie in the window and form a smooth decay that prediction handles well, yet SZ3 must code every value within the bound, so its files grow as $\varepsilon$ shrinks. PSHC predicts these values; its file is about 90\% zero mask, which does not depend on $\varepsilon$. With the $30^\circ$--$60^\circ$ window more than 40\% of the nonzero nodes lie in the side lobes, whose oscillation defeats prediction and transforms, while PSHC predicts them from the pattern and stays three orders of magnitude smaller. At $\varepsilon=0.01\%$ more nodes near pattern nulls need corrections, a third of the PSHC file.
 
 \subsection{Pointwise Accuracy}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{figs/fig_profile.pdf}
+\caption{Original and decoded power density on the vertical line 40~m east of the radar at site P03 ($30^\circ$--$60^\circ$ window, $\varepsilon=0.1\%$), and the relative error in units of $\varepsilon$.}
+\label{fig:profile}
+\end{figure}
 
 \begin{figure}[t]
 \centering
@@ -188,7 +194,7 @@ Table~\ref{tab:cr} lists all methods. SZ3 is the best valid baseline in all 60 c
 \label{fig:err}
 \end{figure}
 
-All 60 configurations satisfy~\eqref{eq:contract} at every node, and all zeros are restored exactly. Fig.~\ref{fig:err} shows the normalized error of every nonzero node: no node exceeds the bound, and the largest normalized error is 0.94--0.998 for the $0^\circ$--$90^\circ$ window and above 0.999 for the $30^\circ$--$60^\circ$ window. Errors above $0.1\varepsilon$ are rare with $0^\circ$--$90^\circ$ (at most 0.03\% of the nonzero nodes) but reach 5.6\%--8.6\% with $30^\circ$--$60^\circ$, where corrections are stored for 0.5\%--30\% of the nonzero nodes and may use the whole tolerance.
+All 60 configurations satisfy~\eqref{eq:contract} at every node, and all zeros are restored exactly. Fig.~\ref{fig:profile} follows one vertical line through the side lobes: the values span 11 orders of magnitude and change by up to 5.75 orders between adjacent nodes, yet the relative error of the decoded values is at most $9.5\times10^{-4}$, and $3.4\times10^{-6}$ inside the window. Fig.~\ref{fig:err} covers every nonzero node: none exceeds the bound, and the largest normalized error is 0.94--0.998 for the $0^\circ$--$90^\circ$ window and above 0.999 for the $30^\circ$--$60^\circ$ window. Errors above $0.1\varepsilon$ are rare with $0^\circ$--$90^\circ$ (at most 0.03\% of the nonzero nodes) but reach 5.6\%--8.6\% with $30^\circ$--$60^\circ$, where corrections are stored for 0.5\%--30\% of the nonzero nodes and may use the whole tolerance.
 
 \subsection{Ablation}
 
