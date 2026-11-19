@@ -148,34 +148,36 @@ On loading, the file is expanded into a flat structure over cells of $8^3$ nodes
 
 \section{Experiments}\label{sec:exp}
 
-The fields were generated with VRPF~\cite{jiao2026vrpf} for a 500~m$\,\times\,$500~m urban area. A vehicle-mounted radar, antenna 3~m above the street, was placed at ten sites (P01--P10) and simulated with two elevation windows, $0^\circ$--$90^\circ$ and $30^\circ$--$60^\circ$. It has $N=256$ elements with $d/\lambda=0.48$ at 24~GHz ($A\approx386$), a 25~dB peak gain and 1~W transmit power. Each field has $512^3$ nodes at 1~m spacing (512~MiB), of which 8.5\%--83.6\% are nonzero; with $\varepsilon\in\{1\%,0.1\%,0.01\%\}$ there are 60 configurations. All runs used one computer (Intel Core i7-14650HX, 8 logical CPUs, 32~GB).
-
-The baselines are SZ3 3.4.0~\cite{liang2023sz3}, ZFP 1.0.1~\cite{lindstrom2014zfp} and SPERR 0.8.5~\cite{li2023sperr} with the usual logarithmic transform~\cite{liang2018pwr}. Zeros are handled either by SZ2's sentinel value or by a separate zstd~\cite{collet2021zstd} bitmap, with zeros filled by a neighboring nonzero value, a constant, or push--pull interpolation~\cite{gortler1996lumigraph}. ZFP is also run with its bound enlarged 2--16 times, because its actual error often stays far below the request, and SZ2's two built-in pointwise-relative modes~\cite{liang2018pwr,zou2019msst} complete 18 candidates per configuration. Two independently written programs check every decompressed candidate at every node in double precision; for each method the smallest valid file counts, including bitmaps and restoration parameters. On four fields our baseline calls reproduced the official command-line tools bit for bit. Compression ratios (raw/compressed size) are averaged geometrically over the sites. PSHC sizes include an optional per-leaf summary (5.6\%--9.8\% of a file at $\varepsilon=0.1\%$) that decoding does not use; Table~\ref{tab:abl} excludes it.
-
-\subsection{Compression Ratio}
-
-\begin{table}[t]
-\caption{Geometric-mean compression ratio over ten sites. Ratio: SZ3 size over PSHC size. Mask, Corr.: shares of the zero mask and the corrections in the PSHC files (ten-site totals).}
+\begin{table*}[t]
+\caption{Geometric-mean compression ratio over ten sites; a number in parentheses is the count of sites at which the method met~\eqref{eq:contract}, and the mean is taken over those sites. Ratio: size of the best baseline (SZ3) over that of PSHC. Mask, Corr.: shares of the zero mask and of the corrections in the PSHC files (ten-site totals).}
 \label{tab:cr}
 \centering
 \footnotesize
-\setlength{\tabcolsep}{3.5pt}
-\begin{tabular}{ccrrrrr}
+\setlength{\tabcolsep}{5pt}
+\begin{tabular}{ccrrrrrrrrr}
 \hline
-Window & $\varepsilon$ & PSHC & SZ3 & Ratio & Mask & Corr.\\
+Window & $\varepsilon$ & PSHC & SZ3 & SPERR & ZFP & SZ2-L & SZ2-P & Ratio & Mask & Corr.\\
 \hline
- & 1\% & 19\,903 & 1\,760.7 & 11.3 & 90.3\% & 0.003\%\\
-$0^\circ$--$90^\circ$ & 0.1\% & 19\,893 & 764.4 & 26.0 & 90.2\% & 0.012\%\\
- & 0.01\% & 19\,851 & 258.6 & 76.8 & 90.1\% & 0.088\%\\
+ & 1\% & 19\,903 & 1\,760.7 & 1\,135.7 & 33.9 & 32.7 (9) & 34.5 & 11.3 & 90.3\% & 0.003\%\\
+$0^\circ$--$90^\circ$ & 0.1\% & 19\,893 & 764.4 & 386.5 & 25.7 & 28.3 (7) & 30.5 & 26.0 & 90.2\% & 0.012\%\\
+ & 0.01\% & 19\,851 & 258.6 & 141.9 & 18.3 & 20.2 (3) & 29.2 & 76.8 & 90.1\% & 0.088\%\\
 \hline
- & 1\% & 19\,453 & 14.0 & 1\,391 & 88.4\% & 0.60\%\\
-$30^\circ$--$60^\circ$ & 0.1\% & 17\,604 & 9.8 & 1\,804 & 80.3\% & 5.07\%\\
- & 0.01\% & 11\,534 & 7.4 & 1\,558 & 53.2\% & 32.9\%\\
+ & 1\% & 19\,453 & 14.0 & 12.6 & 7.6 & 6.5 (1) & 9.6 & 1\,391 & 88.4\% & 0.60\%\\
+$30^\circ$--$60^\circ$ & 0.1\% & 17\,604 & 9.8 & 8.8 & 6.2 & 6.9 (9) & 7.3 & 1\,804 & 80.3\% & 5.07\%\\
+ & 0.01\% & 11\,534 & 7.4 & 6.6 & 4.9 & 5.2 (5) & 6.4 (8) & 1\,558 & 53.2\% & 32.9\%\\
 \hline
 \end{tabular}
-\end{table}
+\end{table*}
 
-SZ3 is the best valid baseline in all 60 configurations (Table~\ref{tab:cr}). With the $0^\circ$--$90^\circ$ window almost all nonzero nodes lie in the window and form a smooth decay that prediction handles well, yet SZ3 must code every value within the bound, so its files grow as $\varepsilon$ shrinks. PSHC predicts these values; its file is about 90\% zero mask, which does not depend on $\varepsilon$. With the $30^\circ$--$60^\circ$ window more than 40\% of the nonzero nodes lie in the side lobes, whose oscillation defeats prediction and transforms, while PSHC predicts them from the pattern and stays three orders of magnitude smaller. At $\varepsilon=0.01\%$ more nodes near pattern nulls need corrections, a third of the PSHC file.
+The fields were generated with VRPF~\cite{jiao2026vrpf} for a 500~m$\,\times\,$500~m urban area. A vehicle-mounted radar, antenna 3~m above the street, was placed at ten sites (P01--P10) and simulated with two elevation windows, $0^\circ$--$90^\circ$ and $30^\circ$--$60^\circ$. It has $N=256$ elements with $d/\lambda=0.48$ at 24~GHz ($A\approx386$), a 25~dB peak gain and 1~W transmit power. Each field has $512^3$ nodes at 1~m spacing (512~MiB), of which 8.5\%--83.6\% are nonzero; with $\varepsilon\in\{1\%,0.1\%,0.01\%\}$ there are 60 configurations. All runs used one computer (Intel Core i7-14650HX, 8 logical CPUs, 32~GB).
+
+The baselines are SZ3 3.4.0~\cite{liang2023sz3}, ZFP 1.0.1~\cite{lindstrom2014zfp} and SPERR 0.8.5~\cite{li2023sperr} with the usual logarithmic transform~\cite{liang2018pwr}. Zeros are handled either by SZ2's sentinel value or by a separate zstd~\cite{collet2021zstd} bitmap, with zeros filled by a neighboring nonzero value, a constant, or push--pull interpolation~\cite{gortler1996lumigraph}. ZFP is also run with its bound enlarged 2--16 times, because its actual error often stays far below the request, and SZ2's two built-in pointwise-relative modes, SZ2-L (logarithmic transform~\cite{liang2018pwr}) and SZ2-P (precomputation~\cite{zou2019msst}), complete 18 candidates per configuration. Two independently written programs check every decompressed candidate at every node in double precision; for each method the smallest valid file counts, including bitmaps and restoration parameters. On four fields our baseline calls reproduced the official command-line tools bit for bit. Compression ratios (raw/compressed size) are averaged geometrically over the sites. PSHC sizes include an optional per-leaf summary (5.6\%--9.8\% of a file at $\varepsilon=0.1\%$) that decoding does not use; Table~\ref{tab:abl} excludes it.
+
+\subsection{Compression Ratio}
+
+
+
+Table~\ref{tab:cr} lists all methods. SZ3 is the best valid baseline in all 60 configurations, followed by SPERR, while ZFP and the SZ2 modes stay at or below 34.5. SZ2-L restores zeros through a sentinel and decoded zeros as nonzero values at up to nine sites; SZ2-P exceeded the bound at two sites with $30^\circ$--$60^\circ$ at $\varepsilon=0.01\%$. With the $0^\circ$--$90^\circ$ window almost all nonzero nodes lie in the window and form a smooth decay that prediction handles well, yet SZ3 must code every value within the bound, so its files grow as $\varepsilon$ shrinks. PSHC predicts these values; its file is about 90\% zero mask, which does not depend on $\varepsilon$. With the $30^\circ$--$60^\circ$ window more than 40\% of the nonzero nodes lie in the side lobes, whose oscillation defeats prediction and transforms, while PSHC predicts them from the pattern and stays three orders of magnitude smaller. At $\varepsilon=0.01\%$ more nodes near pattern nulls need corrections, a third of the PSHC file.
 
 \subsection{Pointwise Accuracy}
 
@@ -244,7 +246,7 @@ Independent queries visit $4\times10^6$ uniformly random nodes and can overlap i
 \subsection{Model Mismatch}
 
 \begin{table}[t]
-\caption{Compression ratio on perturbed fields ($\varepsilon=0.1\%$, geometric mean of P03 and P08).}
+\caption{Compression ratio on perturbed fields ($\varepsilon=0.1\%$, geometric mean of P03 and P08). Only SZ3, the best baseline of Table~\ref{tab:cr}, was run on these fields.}
 \label{tab:rob}
 \centering
 \footnotesize
