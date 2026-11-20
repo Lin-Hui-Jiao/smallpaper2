@@ -71,10 +71,10 @@ S=V\,\frac{K\,G(\phi)}{R^2},\qquad K=\frac{P_tG_{\max}}{4\pi},
 \end{equation}
 where $V\in\{0,1\}$ is the visibility, $R$ the distance and $\phi$ the elevation of the node seen from the antenna, $P_t$ the transmit power, $G_{\max}$ the peak gain, and $G$ the normalized pattern factor. The beam scans $360^\circ$ in azimuth and the elevation window $[\phi_1,\phi_2]$. A node inside the window meets the beam peak during the scan, so $G=1$. Outside, $G=F^2(s)$ with $s=\sin\delta$, where $\delta$ is the angular distance to the nearest window edge and
 \begin{equation}
-F(s)=\frac{\sin(As)}{N\sin(\beta s)},\qquad \beta=\frac{\pi d}{\lambda},\quad A=N\beta,
+F(s)=\frac{\sin(As)}{N_a\sin(\beta s)},\qquad \beta=\frac{\pi d_a}{\lambda},\quad A=N_a\beta,
 \label{eq:af}
 \end{equation}
-is the array factor of $N$ elements spaced $d$ apart at wavelength $\lambda$. Equations~\eqref{eq:field} and~\eqref{eq:af} describe how the data were generated; the encoder does not know their parameters.
+is the array factor of $N_a$ elements spaced $d_a$ apart at wavelength $\lambda$. Equations~\eqref{eq:field} and~\eqref{eq:af} describe how the data were generated; the encoder does not know their parameters.
 
 \subsection{Overview of PSHC}
 
@@ -103,7 +103,7 @@ For $S>0$, condition~\eqref{eq:contract} is equivalent to $\ln(1-\varepsilon)\le
 |\ln\tilde S-\ln S|\le d,\qquad d=\ln(1+\varepsilon),
 \label{eq:logtol}
 \end{equation}
-is sufficient for~\eqref{eq:contract}. A per-node correction stores the integer $q=\mathrm{round}(\ln(S/\hat S)/\Delta)$ and decodes $\tilde S=\fl(\hat S\,e^{q\Delta})$. Rounding $q$ contributes at most $\Delta/2$ to the log error and the floating-point evaluation a small $\eta$, so~\eqref{eq:logtol} holds whenever $\Delta/2+|\eta|_{\max}\le d$; PSHC sets $\Delta$ slightly below $2d$. One step size thus serves values spanning many orders of magnitude, whereas additive corrections would need a step proportional to each value. A leaf whose deviations $\ln(S/\hat S)$ fall in a narrow range stores one shared integer instead.
+is sufficient for~\eqref{eq:contract}. A per-node correction quantizes the log deviation $\ln(S/\hat S)$ with a uniform step $\Delta$: it stores the integer $q=\mathrm{round}(\ln(S/\hat S)/\Delta)$ and decodes $\tilde S=\fl(\hat S\,e^{q\Delta})$. Rounding $q$ contributes at most $\Delta/2$ to the log error and the floating-point evaluation a small $\eta$, so~\eqref{eq:logtol} holds whenever $\Delta/2+|\eta|_{\max}\le d$; PSHC sets $\Delta$ slightly below $2d$. One step size thus serves values spanning many orders of magnitude, whereas additive corrections would need a step proportional to each value. A leaf whose deviations $\ln(S/\hat S)$ fall in a narrow range stores instead one shared integer $c$, the midpoint of that range in units of a finer step $\delta_c=d/64$.
 
 \subsection{Leaf States and Acceptance}
 
@@ -119,7 +119,7 @@ State & Stored data & Decoded nonzero value\\
 \hline
 Z & --- & (all nodes are zero)\\
 P & --- & $\fl(\hat S)$\\
-C & one integer $c$ & $\fl(\hat S\,e^{c\delta})$, $\delta=d/64$\\
+C & one integer $c$ & $\fl(\hat S\,e^{c\delta_c})$\\
 R & integers $q$, predictively coded & $\fl(\hat S\,e^{q\Delta})$\\
 RAW & single-precision values & $S$\\
 \hline
@@ -170,7 +170,7 @@ $30^\circ$--$60^\circ$ & 0.1\% & 17\,604 & 9.8 & 8.8 & 6.2 & 6.9 (9) & 7.3 & 1\,
 \end{tabular}
 \end{table*}
 
-The fields were generated with VRPF~\cite{jiao2026vrpf} for a 500~m$\,\times\,$500~m urban area. A vehicle-mounted radar, antenna 3~m above the street, was placed at ten sites (P01--P10) and simulated with two elevation windows, $0^\circ$--$90^\circ$ and $30^\circ$--$60^\circ$. It has $N=256$ elements with $d/\lambda=0.48$ at 24~GHz ($A\approx386$), a 25~dB peak gain and 1~W transmit power. Each field has $512^3$ nodes at 1~m spacing (512~MiB), of which 8.5\%--83.6\% are nonzero; with $\varepsilon\in\{1\%,0.1\%,0.01\%\}$ there are 60 configurations. All runs used one computer (Intel Core i7-14650HX, 8 logical CPUs, 32~GB).
+The fields were generated with VRPF~\cite{jiao2026vrpf} for a 500~m$\,\times\,$500~m urban area. A vehicle-mounted radar, antenna 3~m above the street, was placed at ten sites (P01--P10) and simulated with two elevation windows, $0^\circ$--$90^\circ$ and $30^\circ$--$60^\circ$. It has $N_a=256$ elements with $d_a/\lambda=0.48$ at 24~GHz ($A\approx386$), a 25~dB peak gain and 1~W transmit power. Each field has $512^3$ nodes at 1~m spacing (512~MiB), of which 8.5\%--83.6\% are nonzero; with $\varepsilon\in\{1\%,0.1\%,0.01\%\}$ there are 60 configurations. All runs used one computer (Intel Core i7-14650HX, 8 logical CPUs, 32~GB).
 
 The baselines are SZ3 3.4.0~\cite{liang2023sz3}, ZFP 1.0.1~\cite{lindstrom2014zfp} and SPERR 0.8.5~\cite{li2023sperr} with the usual logarithmic transform~\cite{liang2018pwr}. Zeros are handled either by SZ2's sentinel value or by a separate zstd~\cite{collet2021zstd} bitmap, with zeros filled by a neighboring nonzero value, a constant, or push--pull interpolation~\cite{gortler1996lumigraph}. ZFP is also run with its bound enlarged 2--16 times, because its actual error often stays far below the request, and SZ2's two built-in pointwise-relative modes, SZ2-L (logarithmic transform~\cite{liang2018pwr}) and SZ2-P (precomputation~\cite{zou2019msst}), complete 18 candidates per configuration. Two independently written programs check every decompressed candidate at every node in double precision; for each method the smallest valid file counts, including bitmaps and restoration parameters. On four fields our baseline calls reproduced the official command-line tools bit for bit. Compression ratios (raw/compressed size) are averaged geometrically over the sites. PSHC sizes include an optional per-leaf summary (5.6\%--9.8\% of a file at $\varepsilon=0.1\%$) that decoding does not use; Table~\ref{tab:abl} excludes it.
 
